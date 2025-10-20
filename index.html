@@ -309,7 +309,7 @@
                 }
 
                 if (interests.length === 0) {
-                    console.warn("No specific financial interests selected.");
+                    console.warn("No specific financial interests selected in the form.");
                 }
 
                 // Construct the lead object
@@ -336,6 +336,9 @@
                 statusMessageEl.textContent = 'Lead added successfully!';
                 leadForm.reset(); // Clear the form
                 
+                // IMPORTANT: Since the form is reset, we must call updateContentButtonState to disable the content button again
+                updateContentButtonState(); 
+
                 // Hide message after a delay
                 setTimeout(() => statusMessageEl.classList.add('hidden'), 3000);
 
@@ -463,8 +466,12 @@
 
         // Function to update the button text and state
         function updateContentButtonState() {
+            // Select all checkboxes with the name 'interest' that are currently checked
             const checkedInterests = document.querySelectorAll('input[name="interest"]:checked');
+            
+            // Enable the button if at least one product is checked
             generateContentBtn.disabled = checkedInterests.length === 0;
+            
             if (checkedInterests.length === 0) {
                 generateContentBtn.textContent = 'Select Product(s) Above to Activate';
             } else {
