@@ -198,7 +198,8 @@
         // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initialAuthToken : null;
+        // FIX: The correct global variable name is __initial_auth_token (lowercase 't')
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
         // Gemini API Configuration
         const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
@@ -224,7 +225,7 @@
         const leadsTableBody = document.getElementById('leads-table-body');
         const leadsTable = document.getElementById('leads-table');
         const loadingMsg = document.getElementById('loading-msg');
-        const interestGroup = document.getElementById('interest-group');
+        // const interestGroup = document.getElementById('interest-group'); // Not strictly needed
 
         // Content Generator UI Elements
         const generateContentBtn = document.getElementById('generate-content-btn');
@@ -275,6 +276,9 @@
                 
                 // Once authenticated, set up the real-time listener
                 setupRealtimeLeads();
+                
+                // Ensure the content generator button state is correct immediately after auth
+                updateContentButtonState(); 
 
             } catch (error) {
                 console.error("Firebase Auth or Firestore setup failed:", error);
@@ -299,7 +303,7 @@
                 const email = document.getElementById('email').value.trim();
                 const phone = document.getElementById('phone').value.trim();
                 const province = document.getElementById('province').value;
-                const source = document.getElementById('source').value; // Get the new source value
+                const source = document.getElementById('source').value;
                 
                 const interestCheckboxes = document.querySelectorAll('input[name="interest"]:checked');
                 const interests = Array.from(interestCheckboxes).map(cb => cb.value);
@@ -309,7 +313,7 @@
                 }
 
                 if (interests.length === 0) {
-                    console.warn("No specific financial interests selected in the form.");
+                    console.warn("No specific financial interests selected in the form. Saving lead anyway.");
                 }
 
                 // Construct the lead object
@@ -318,11 +322,10 @@
                     email,
                     phone: phone || 'N/A',
                     province,
-                    source, // Include the source
+                    source,
                     interests,
                     createdAt: serverTimestamp(),
                     isContacted: false,
-                    // Store the user ID of the collector for security
                     collectorId: userId, 
                 };
 
@@ -427,7 +430,7 @@
         }
 
         /**
-         * 4. Toggle Contact Status
+         * 4. Toggle Contact Status (Global Function for onclick)
          */
         window.toggleContactStatus = async (leadId, currentStatus) => {
             if (!userId) {
@@ -482,97 +485,20 @@
         // Attach change listener to each checkbox for more reliable event detection.
         const interestCheckboxes = document.querySelectorAll('input[name="interest"]');
         interestCheckboxes.forEach(checkbox => {
+            // FIX: Re-attaching the event listener
+            checkbox.removeEventListener('change', updateContentButtonState); 
             checkbox.addEventListener('change', updateContentButtonState);
         });
         
-        // Set initial button state when the script loads
-        updateContentButtonState();
-
-        generateContentBtn.addEventListener('click', generateMarketingContent);
-
-        async function generateMarketingContent() {
-            const checkedInterests = Array.from(document.querySelectorAll('input[name="interest"]:checked')).map(cb => cb.value);
-
-            if (checkedInterests.length === 0) return;
-
-            // UI feedback
-            generateContentBtn.disabled = true;
-            generateContentBtn.textContent = 'Generating Content... (Fetching Live Data)';
-            generatedTextEl.innerHTML = '<div class="flex items-center justify-center space-x-2 text-primary-blue"><svg class="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating...</div>';
-            contentSourcesEl.innerHTML = '';
-            contentOutputContainer.classList.remove('hidden');
-
-            const interestList = checkedInterests.join(', ');
-
-            const systemPrompt = "You are a Canadian financial marketing expert. Your task is to generate one highly engaging, concise, and persuasive social media post (for platforms like LinkedIn or Twitter) targeting Canadian residents. The post must focus on the benefits of the requested financial products and include a clear, Canadian-specific call to action (like 'Contact us for a free plan'). The tone should be professional and motivating.";
-            
-            const userQuery = `Generate a social media post (less than 200 words) focusing on the benefits and urgency of planning for Canadian financial products: ${interestList}. Use current, up-to-date data and mention the Canadian government incentives where applicable.`;
-
-            const payload = {
-                contents: [{ parts: [{ text: userQuery }] }],
-                tools: [{ "google_search": {} }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-            };
-
-            const options = {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            };
-
-            try {
-                const response = await exponentialBackoffFetch(apiUrl, options);
-                const result = await response.json();
-                
-                const candidate = result.candidates?.[0];
-
-                if (candidate && candidate.content?.parts?.[0]?.text) {
-                    const text = candidate.content.parts[0].text;
-                    
-                    // 1. Extract and format generated text
-                    generatedTextEl.textContent = text; 
-
-                    // 2. Extract and display sources
-                    let sources = [];
-                    const groundingMetadata = candidate.groundingMetadata;
-                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
-                        sources = groundingMetadata.groundingAttributions
-                            .map(attribution => ({
-                                uri: attribution.web?.uri,
-                                title: attribution.web?.title,
-                            }))
-                            .filter(source => source.uri && source.title);
-                    }
-                    
-                    contentSourcesEl.innerHTML = '';
-                    if (sources.length > 0) {
-                        sources.forEach(source => {
-                            const li = document.createElement('li');
-                            li.innerHTML = `<a href="${source.uri}" target="_blank" class="text-primary-blue hover:underline">${source.title}</a>`;
-                            contentSourcesEl.appendChild(li);
-                        });
-                    } else {
-                         contentSourcesEl.innerHTML = '<li>No specific web sources cited for this content.</li>';
-                    }
-
-                } else {
-                    generatedTextEl.textContent = 'Content generation failed. No text returned.';
-                    contentSourcesEl.innerHTML = '';
-                    console.error("API response was empty or malformed:", result);
-                }
-
-            } catch (error) {
-                generatedTextEl.textContent = `A network or API error occurred: ${error.message}`;
-                contentSourcesEl.innerHTML = '';
-                console.error("Fetch Error:", error);
-            } finally {
-                generateContentBtn.disabled = false;
-                generateContentBtn.textContent = `Generate Content for ${checkedInterests.length} Product(s)`;
-            }
-        }
+        // --- End Content Generator Logic ---
 
         // Start the application lifecycle
         authenticateAndInitialize();
+
+        // FIX: Run the state update immediately after the script loads to check any default or persisted states
+        // This is called inside authenticateAndInitialize, but running it here also ensures the button updates 
+        // as soon as the DOM is ready, which is crucial for the visual feedback.
+        updateContentButtonState();
 
     </script>
 </body>
